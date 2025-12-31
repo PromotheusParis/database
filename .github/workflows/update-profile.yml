@@ -1,4 +1,4 @@
-name: Sync Profile Unified (Safe Fix)
+name: Sync Profile (Raw-HD Final)
 
 permissions:
   contents: write
@@ -23,39 +23,26 @@ jobs:
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
 
-      - name: Vérifier l'origine (Upstream)
-        id: check
+      - name: Reset & Clean (Base saine)
         run: |
-          git remote add upstream https://github.com/Dictionarry-Hub/database.git
+          # On repart sur la version officielle pour éviter les doublons
+          git remote add upstream https://github.com/Dictionarry-Hub/database.git || true
           git fetch upstream
-          UPSTREAM_COMMIT=$(git rev-parse upstream/stable)
-          LAST_PROCESSED=$(git log -1 --pretty=%B | grep -o '\[upstream:.*\]' | sed 's/\[upstream://;s/\]//' || echo "none")
-          
-          if [ "$UPSTREAM_COMMIT" == "$LAST_PROCESSED" ]; then
-            echo "updated=false" >> $GITHUB_OUTPUT
-          else
-            echo "updated=true" >> $GITHUB_OUTPUT
-            echo "commit_hash=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Nettoyage et Récupération Ciblée
-        if: steps.check.outputs.updated == 'true'
-        run: |
-          # 1. On récupère juste le fichier qu'on veut (sans casser le reste)
           git checkout upstream/stable -- "profiles/2160p Remux.yml"
           
-          # 2. On supprime le doublon Sonarr qu'on avait créé avant
+          # On supprime les vieux fichiers qui foutent la merde (s'ils existent)
           rm -f "profiles/2160p Remux (Sonarr).yml"
 
-      - name: Injecter Raw-HD (Compatible Radarr & Sonarr)
-        if: steps.check.outputs.updated == 'true'
+      - name: Injection Raw-HD (Compatible Radarr & Sonarr)
         shell: python
         run: |
           import sys
           import re
 
           file_path = 'profiles/2160p Remux.yml'
-          # ID fictif 9001, mais Nom "Raw-HD" qui est reconnu par tout le monde
+          
+          # ON UTILISE RAW-HD (ID FICTIF 9001 POUR LE LIEN)
+          # C'est la clé : Raw-HD existe partout, donc pas d'erreur "Quality Not Found"
           FAKE_ID = 9001
           QUALITY_NAME = "Raw-HD"
           
@@ -76,15 +63,14 @@ jobs:
               if re.search(pattern_upgrade, content):
                   content = re.sub(pattern_upgrade, replacement, content)
               else:
-                  # Fallback
+                  # Fallback standard
                   content = re.sub(r'^cutoff:\s*-?\d+', f'cutoff: {FAKE_ID}', content, flags=re.MULTILINE)
 
-              # On prépare les lignes pour l'insertion
+              # 3. INSERER Raw-HD EN HAUT DE LA LISTE
               lines = content.splitlines(keepends=True)
               new_lines = []
               inserted = False
               
-              # 3. INSERER Raw-HD EN HAUT DE LA LISTE
               for i, line in enumerate(lines):
                   new_lines.append(line)
                   if not inserted and line.strip() == 'qualities:':
@@ -99,6 +85,7 @@ jobs:
                       sub_indent = detected_indent + "  "
                       sub_sub_indent = sub_indent + "    "
                       
+                      # Bloc à insérer (Raw-HD)
                       block_to_insert = (
                           f"{detected_indent}- id: {FAKE_ID}\n"
                           f"{sub_indent}name: {QUALITY_NAME}\n"
@@ -118,10 +105,10 @@ jobs:
               print(f"Erreur Python: {e}")
               sys.exit(1)
 
-      - name: Commit et Push
-        if: steps.check.outputs.updated == 'true'
+      - name: Commit et Push (Avec Sécurité)
         run: |
           git add .
-          git commit -m "Auto-update: Unified Raw-HD Profile [upstream:${{ steps.check.outputs.commit_hash }}]"
+          # Le "|| echo" empêche le script de planter si rien n'a changé
+          git commit -m "Auto-update: Switch to Raw-HD [Final Fix]" || echo "Rien à modifier, tout est déjà jour."
           git push origin stable
           
