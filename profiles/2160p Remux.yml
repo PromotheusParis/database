@@ -131,7 +131,7 @@ custom_formats:
 - name: HDR (Missing)
   score: 1000
 - name: HDR10
-  score: 1000
+  score: 2
 - name: HDR10 (Missing)
   score: 1000
 - name: HLG
