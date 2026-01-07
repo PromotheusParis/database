@@ -1,4 +1,4 @@
-name: Sync Profile (Raw-HD Final)
+name: Sync Full Repo (Clean Workflows)
 
 permissions:
   contents: write
@@ -23,92 +23,86 @@ jobs:
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
 
-      - name: Reset & Clean (Base saine)
+      - name: Sync & Clean Workflows
         run: |
-          # On repart sur la version officielle pour éviter les doublons
-          git remote add upstream https://github.com/Dictionarry-Hub/database.git || true
-          git fetch upstream
-          git checkout upstream/stable -- "profiles/2160p Remux.yml"
+          # 1. Sauvegarde de TON workflow
+          cp .github/workflows/update-profile.yml /tmp/my_workflow_backup.yml
           
-          # On supprime les vieux fichiers qui foutent la merde (s'ils existent)
-          rm -f "profiles/2160p Remux (Sonarr).yml"
+          # 2. Sync totale avec l'original
+          git remote add upstream https://github.com/Dictionarry-Hub/database.git || true
+          git fetch upstream stable
+          git reset --hard upstream/stable
+          
+          # 3. DÉGAGE TOUS LES WORKFLOWS ORIGINAUX
+          # On vide le dossier pour être sûr qu'il ne reste rien de l'original
+          rm -rf .github/workflows/*
+          
+          # 4. Restauration de TON workflow uniquement
+          mkdir -p .github/workflows
+          cp /tmp/my_workflow_backup.yml .github/workflows/update-profile.yml
 
-      - name: Injection Raw-HD (Compatible Radarr & Sonarr)
+      - name: Injection Raw-HD (Tous les profils)
         shell: python
         run: |
           import sys
           import re
+          import os
 
-          file_path = 'profiles/2160p Remux.yml'
-          
-          # ON UTILISE RAW-HD (ID FICTIF 9001 POUR LE LIEN)
-          # C'est la clé : Raw-HD existe partout, donc pas d'erreur "Quality Not Found"
+          profiles_dir = 'profiles'
           FAKE_ID = 9001
           QUALITY_NAME = "Raw-HD"
           
-          try:
-              with open(file_path, 'r') as f:
-                  content = f.read()
-                  lines = content.splitlines(keepends=True)
+          if not os.path.exists(profiles_dir):
+              sys.exit(0)
 
-              # 1. FORCER L'UPGRADE ALLOWED
-              if 'upgradeAllowed: false' in content:
+          for filename in os.listdir(profiles_dir):
+              if not filename.endswith('.yml'):
+                  continue
+              file_path = os.path.join(profiles_dir, filename)
+              try:
+                  with open(file_path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
                   content = content.replace('upgradeAllowed: false', 'upgradeAllowed: true')
-
-              # 2. MODIFIER LE CUTOFF POUR VISER Raw-HD
-              # On remplace l'ID et le Nom dans le bloc upgrade_until
-              pattern_upgrade = r"(upgrade_until:\s*\r?\n)(\s+id:\s*-?\d+\s*\r?\n)(\s+name:.*)"
-              replacement = f"upgrade_until:\n  id: {FAKE_ID}\n  name: {QUALITY_NAME}"
-              
-              if re.search(pattern_upgrade, content):
-                  content = re.sub(pattern_upgrade, replacement, content)
-              else:
-                  # Fallback standard
-                  content = re.sub(r'^cutoff:\s*-?\d+', f'cutoff: {FAKE_ID}', content, flags=re.MULTILINE)
-
-              # 3. INSERER Raw-HD EN HAUT DE LA LISTE
-              lines = content.splitlines(keepends=True)
-              new_lines = []
-              inserted = False
-              
-              for i, line in enumerate(lines):
-                  new_lines.append(line)
-                  if not inserted and line.strip() == 'qualities:':
-                      # Détection de l'indentation
-                      detected_indent = "  "
-                      for next_line in lines[i+1:]:
-                          stripped = next_line.strip()
-                          if stripped.startswith('-'):
-                              detected_indent = next_line[:next_line.find('-')]
-                              break
-                      
-                      sub_indent = detected_indent + "  "
-                      sub_sub_indent = sub_indent + "    "
-                      
-                      # Bloc à insérer (Raw-HD)
-                      block_to_insert = (
-                          f"{detected_indent}- id: {FAKE_ID}\n"
-                          f"{sub_indent}name: {QUALITY_NAME}\n"
-                          f"{sub_indent}allowed: true\n"
-                          f"{sub_indent}qualities:\n"
-                          f"{sub_sub_indent}- id: {FAKE_ID}\n"
-                          f"{sub_sub_indent}  name: {QUALITY_NAME}\n"
-                      )
-                      new_lines.append(block_to_insert)
-                      inserted = True
-
-              with open(file_path, 'w') as f:
-                  f.writelines(new_lines)
-              print(f"SUCCESS: {QUALITY_NAME} injecté.")
+                  pattern_upgrade = r"(upgrade_until:\s*\r?\n)(\s+id:\s*-?\d+\s*\r?\n)(\s+name:.*)"
+                  replacement = f"upgrade_until:\n  id: {FAKE_ID}\n  name: {QUALITY_NAME}"
                   
-          except Exception as e:
-              print(f"Erreur Python: {e}")
-              sys.exit(1)
+                  if re.search(pattern_upgrade, content):
+                      content = re.sub(pattern_upgrade, replacement, content)
+                  else:
+                      content = re.sub(r'^cutoff:\s*-?\d+', f'cutoff: {FAKE_ID}', content, flags=re.MULTILINE)
 
-      - name: Commit et Push (Avec Sécurité)
+                  lines = content.splitlines(keepends=True)
+                  new_lines = []
+                  inserted = False
+                  for i, line in enumerate(lines):
+                      new_lines.append(line)
+                      if not inserted and line.strip() == 'qualities:':
+                          detected_indent = "  "
+                          for next_line in lines[i+1:]:
+                              if next_line.strip().startswith('-'):
+                                  detected_indent = next_line[:next_line.find('-')]
+                                  break
+                          sub_indent = detected_indent + "  "
+                          sub_sub_indent = sub_indent + "    "
+                          block = (f"{detected_indent}- id: {FAKE_ID}\n"
+                                   f"{sub_indent}name: {QUALITY_NAME}\n"
+                                   f"{sub_indent}allowed: true\n"
+                                   f"{sub_indent}qualities:\n"
+                                   f"{sub_sub_indent}- id: {FAKE_ID}\n"
+                                   f"{sub_sub_indent}  name: {QUALITY_NAME}\n")
+                          new_lines.append(block)
+                          inserted = True
+
+                  with open(file_path, 'w', encoding='utf-8') as f:
+                      f.writelines(new_lines)
+              except Exception as e:
+                  print(f"Erreur: {e}")
+
+      - name: Commit et Push Force
         run: |
           git add .
-          # Le "|| echo" empêche le script de planter si rien n'a changé
-          git commit -m "Auto-update: Switch to Raw-HD [Final Fix]" || echo "Rien à modifier, tout est déjà jour."
-          git push origin stable
-          
+          git commit -m "Full Sync | Clean Workflows | Raw-HD Patch" || echo "Rien"
+          git push origin stable --force
+
+
