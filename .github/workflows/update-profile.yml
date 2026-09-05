@@ -1,0 +1,107 @@
+name: Sync Full Repo (Clean Workflows)
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync_and_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mon fork
+        uses: actions/checkout@v4
+        with:
+          ref: stable
+          fetch-depth: 0
+
+      - name: Configurer Git
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+
+      - name: Sync & Clean Workflows
+        run: |
+          # 1. Sauvegarde de TON workflow
+          cp .github/workflows/update-profile.yml /tmp/my_workflow_backup.yml
+          
+          # 2. Sync totale avec l'original
+          git remote add upstream https://github.com/Dictionarry-Hub/database.git || true
+          git fetch upstream stable
+          git reset --hard upstream/stable
+          
+          # 3. DÉGAGE TOUS LES WORKFLOWS ORIGINAUX
+          # On vide le dossier pour être sûr qu'il ne reste rien de l'original
+          rm -rf .github/workflows/*
+          
+          # 4. Restauration de TON workflow uniquement
+          mkdir -p .github/workflows
+          cp /tmp/my_workflow_backup.yml .github/workflows/update-profile.yml
+
+      - name: Injection Raw-HD (Tous les profils)
+        shell: python
+        run: |
+          import sys
+          import re
+          import os
+
+          profiles_dir = 'profiles'
+          FAKE_ID = 9001
+          QUALITY_NAME = "Raw-HD"
+          
+          if not os.path.exists(profiles_dir):
+              sys.exit(0)
+
+          for filename in os.listdir(profiles_dir):
+              if not filename.endswith('.yml'):
+                  continue
+              file_path = os.path.join(profiles_dir, filename)
+              try:
+                  with open(file_path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
+                  content = content.replace('upgradeAllowed: false', 'upgradeAllowed: true')
+                  pattern_upgrade = r"(upgrade_until:\s*\r?\n)(\s+id:\s*-?\d+\s*\r?\n)(\s+name:.*)"
+                  replacement = f"upgrade_until:\n  id: {FAKE_ID}\n  name: {QUALITY_NAME}"
+                  
+                  if re.search(pattern_upgrade, content):
+                      content = re.sub(pattern_upgrade, replacement, content)
+                  else:
+                      content = re.sub(r'^cutoff:\s*-?\d+', f'cutoff: {FAKE_ID}', content, flags=re.MULTILINE)
+
+                  lines = content.splitlines(keepends=True)
+                  new_lines = []
+                  inserted = False
+                  for i, line in enumerate(lines):
+                      new_lines.append(line)
+                      if not inserted and line.strip() == 'qualities:':
+                          detected_indent = "  "
+                          for next_line in lines[i+1:]:
+                              if next_line.strip().startswith('-'):
+                                  detected_indent = next_line[:next_line.find('-')]
+                                  break
+                          sub_indent = detected_indent + "  "
+                          sub_sub_indent = sub_indent + "    "
+                          block = (f"{detected_indent}- id: {FAKE_ID}\n"
+                                   f"{sub_indent}name: {QUALITY_NAME}\n"
+                                   f"{sub_indent}allowed: true\n"
+                                   f"{sub_indent}qualities:\n"
+                                   f"{sub_sub_indent}- id: {FAKE_ID}\n"
+                                   f"{sub_sub_indent}  name: {QUALITY_NAME}\n")
+                          new_lines.append(block)
+                          inserted = True
+
+                  with open(file_path, 'w', encoding='utf-8') as f:
+                      f.writelines(new_lines)
+              except Exception as e:
+                  print(f"Erreur: {e}")
+
+      - name: Commit et Push Force
+        run: |
+          git add .
+          git commit -m "Full Sync | Clean Workflows | Raw-HD Patch" || echo "Rien"
+          git push origin stable --force
+          
