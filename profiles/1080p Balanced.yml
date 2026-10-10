@@ -222,6 +222,12 @@ custom_formats_sonarr:
 - name: Upscaled
   score: -999999
 qualities:
+- id: 9001
+  name: Raw-HD
+  allowed: true
+  qualities:
+      - id: 9001
+        name: Raw-HD
 - id: -1
   name: 1080p Balanced
   description: Balanced Capable releases. Typically WEB-DL would be the overwhelming
@@ -255,8 +261,8 @@ qualities:
   - id: 22
     name: DVD
 upgrade_until:
-  id: -1
-  name: 1080p Balanced
+  id: 9001
+  name: Raw-HD
   description: Balanced Capable releases. Typically WEB-DL would be the overwhelming
     majority of releases, but there are occasional streaming optimised encodes that
     should be preferred.
